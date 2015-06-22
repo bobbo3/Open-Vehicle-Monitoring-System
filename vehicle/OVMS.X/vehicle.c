@@ -70,6 +70,7 @@ rom int  (*vehicle_fn_minutestocharge)(unsigned char chgmod, int wAvail, int imS
 unsigned char vehicle_poll_state;        // Current poll state
 rom vehicle_pid_t* vehicle_poll_plist;   // Head of poll list
 rom vehicle_pid_t* vehicle_poll_plcur;   // Current position in poll list
+unsigned int vehicle_poll_canid; // the request can id
 unsigned int vehicle_poll_ticker;        // Polling ticker
 unsigned int vehicle_poll_moduleid_low;  // Expected moduleid low mark
 unsigned int vehicle_poll_moduleid_high; // Expected moduleid high mark
@@ -124,6 +125,7 @@ void vehicle_poll_poller(void)
         vehicle_poll_moduleid_low = vehicle_poll_plcur->rmoduleid;
         vehicle_poll_moduleid_high = vehicle_poll_plcur->rmoduleid;
         TXB0CON = 0;
+        vehicle_poll_canid = vehicle_poll_plcur->moduleid;
         TXB0SIDL = (vehicle_poll_plcur->moduleid & 0x07)<<5;
         TXB0SIDH = (vehicle_poll_plcur->moduleid >>3);
         }
@@ -135,9 +137,10 @@ void vehicle_poll_poller(void)
         TXB0SIDL = 0b11100000;  // 0x07df
         TXB0SIDH = 0b11111011;
         }
+      
       switch (vehicle_poll_plcur->type)
         {
-        case VEHICLE_POLL_TYPE_OBDIICURRENT:
+        case VEHICLE_POLL_TYPE_OBDIICURRENT: //0x01
           TXB0D0 = 0x02;
           TXB0D1 = vehicle_poll_type;
           TXB0D2 = vehicle_poll_pid;
@@ -149,7 +152,7 @@ void vehicle_poll_poller(void)
           TXB0DLC = 0b00001000; // data length (8)
           TXB0CON = 0b00001000; // mark for transmission
           break;
-        case VEHICLE_POLL_TYPE_OBDIIVEHICLE:
+        case VEHICLE_POLL_TYPE_OBDIIVEHICLE: //0x09 
           vehicle_poll_ml_remain = 0;
           TXB0D0 = 0x02;
           TXB0D1 = vehicle_poll_type;
@@ -162,11 +165,21 @@ void vehicle_poll_poller(void)
           TXB0DLC = 0b00001000; // data length (8)
           TXB0CON = 0b00001000; // mark for transmission
           break;
-        case VEHICLE_POLL_TYPE_OBDIIGROUP:
+        case VEHICLE_POLL_TYPE_OBDIIGROUP: // 0x21
+          TXB0D0 = 0x02;
+          TXB0D1 = vehicle_poll_type;
+          TXB0D2 = vehicle_poll_pid;
+          TXB0D3 = 0x00;
+          TXB0D4 = 0x00;
+          TXB0D5 = 0x00;
+          TXB0D6 = 0x00;
+          TXB0D7 = 0x00;
+          TXB0DLC = 0b00001000; // data length (8)
+          TXB0CON = 0b00001000; // mark for transmission
           break;
-        case VEHICLE_POLL_TYPE_OBDIIEXTENDED:
+        case VEHICLE_POLL_TYPE_OBDIIEXTENDED:  //0x22
           TXB0D0 = 0x03;
-          TXB0D1 = VEHICLE_POLL_TYPE_OBDIIEXTENDED;    // Get extended PID
+          TXB0D1 = VEHICLE_POLL_TYPE_OBDIIEXTENDED;  // Get extended PID
           TXB0D2 = vehicle_poll_pid >> 8;
           TXB0D3 = vehicle_poll_pid & 0xff;
           TXB0D4 = 0x00;
@@ -249,6 +262,56 @@ BOOL vehicle_poll_poll0(void)
         }
       break;
     case VEHICLE_POLL_TYPE_OBDIIGROUP:
+      if (((can_databuffer[0]>>4) == 0x1)&&
+          (can_databuffer[2] == 0x61)&&
+          (can_databuffer[3] == vehicle_poll_pid))
+        {
+        // First frame
+        while (TXB0CONbits.TXREQ) {} // Loop until TX is done
+        TXB0CON = 0;
+        TXB0SIDL = (vehicle_poll_canid & 0x07)<<5;
+        TXB0SIDH = (vehicle_poll_canid >>3);
+        //TXB0SIDL = ((can_id-8) & 0x07)<<5;
+        //TXB0SIDH = ((can_id-8)>>3);
+        TXB0D0 = 0x30;
+        TXB0D1 = 0x00;
+        TXB0D2 = 0x33; // 50ms
+        TXB0D3 = 0x00;
+        TXB0D4 = 0x00;
+        TXB0D5 = 0x00;
+        TXB0D6 = 0x00;
+        TXB0D7 = 0x00;
+        TXB0DLC = 0b00001000; // data length (8)
+        TXB0CON = 0b00001000; // mark for transmission
+        vehicle_poll_ml_remain = (((unsigned int)(can_databuffer[0]&0xf0))<<8)+can_databuffer[1] - 3;
+        vehicle_poll_ml_offset = 3;
+        vehicle_poll_ml_frame = 0;
+        can_datalength = 3;
+        can_databuffer[0] = can_databuffer[4];
+        can_databuffer[1] = can_databuffer[5];
+        can_databuffer[2] = can_databuffer[6];
+        can_databuffer[3] = can_databuffer[7];
+        return TRUE;
+        }
+      else if (((can_databuffer[0]>>4)==0x2)&&(vehicle_poll_ml_remain>0))
+        {
+        // Consecutive frame
+        for (k=0;k<7;k++) { can_databuffer[k] = can_databuffer[k+1]; }
+        if (vehicle_poll_ml_remain>7)
+          {
+          vehicle_poll_ml_remain -= 7;
+          vehicle_poll_ml_offset += 7;
+          can_datalength = 7;
+          }
+        else
+          {
+          can_datalength = vehicle_poll_ml_remain;
+          vehicle_poll_ml_offset += vehicle_poll_ml_remain;
+          vehicle_poll_ml_remain = 0;
+          }
+        vehicle_poll_ml_frame++;
+        return TRUE;
+        }
       break;
     case VEHICLE_POLL_TYPE_OBDIIEXTENDED:
       if ((can_databuffer[1] == 0x62)&&

@@ -5727,7 +5727,7 @@ char vehicle_twizy_debug_msgp(char stat, int cmd)
   s = stp_i(s, ",", car_idealrange);
   s = stp_i(s, ",", can_minSOCnotified);
   */
-
+/*
   // V3.4.0:
   s = stp_i(s, ",", twizy_power_min * 16);
   s = stp_i(s, ",", twizy_power_max * 16);
@@ -5735,7 +5735,7 @@ char vehicle_twizy_debug_msgp(char stat, int cmd)
   s = stp_i(s, ",", (int) last_max_recup_pwr * 500);
   s = stp_i(s, ",", cfgparam(autorecup_min));
   s = stp_l2f(s, ",", twizy_autorecup_level, 1);
-
+*/
   net_msg_encode_puts();
   return (stat == 2) ? 1 : stat;
 }

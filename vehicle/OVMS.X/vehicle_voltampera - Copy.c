@@ -62,20 +62,15 @@ rom struct
   } vehicle_voltampera_polls[]
   =
   {
-//    { 0x07E5, 10, 0x02BD }, // odometer
-//    { 0x07E5, 10, 0x02BD }, // odometer second part
-      
-    { 0x07E5, 10, 0x028C }, // SOC
-    { 0x07E5, 10, 0x1E3B }, // pack voltage 
-    { 0x07E5, 10, 0x1E3D }, // pack current 
-    { 0x07E5, 10, 0x1E33 }, // max cell voltage, cell id
-    { 0x07E5, 10, 0x1E34 }, // min cell voltage, cell id
-    { 0x07E5, 10, 0x7448 }, // is it charging? 01 no, 04 yes
-    { 0x07E5, 10, 0x1E0E }, // battery max temperature
-    { 0x07E5, 10, 0x1E0F }, // battery min temperature
-    { 0x0714, 10, 0x2203 }, // ambient temperature // response at 0x77E
-    { 0x0714, 10, 0xF40D }, // speed // response at 0x77E
-  //  { 0x07E5, 10, 0x1E32 },
+    { 0x07E0, 10, 0x000D },
+    { 0x07E4, 10, 0x4369 },
+    { 0x07E4, 10, 0x4368 },
+    { 0x07E4, 10, 0x801f },
+    { 0x07E4, 10, 0x801e },
+    { 0x07E4, 10, 0x434f },
+    { 0x07E4, 10, 0x1c43 },
+    { 0x07E4, 10, 0x8334 },
+    { 0x07E1, 100, 0x2487 },
     { 0x0000, 0,  0x0000 }
   };
 
@@ -190,7 +185,6 @@ BOOL vehicle_voltampera_ticker1(void)
 
   // bus_is_active indicates we've recently seen a message on the can bus
   // Quick exit if bus is recently not active
-  
   if ((!va_bus_is_active) && (car_chargecurrent==0) && (car_linevoltage==0)) return FALSE;
 
   // Also, we need CAN_WRITE enabled, so return if not
@@ -224,7 +218,7 @@ BOOL vehicle_voltampera_ticker1(void)
     }
   // Assume the bus is not active, so we won't poll any more until we see
   // activity on the bus
-  va_bus_is_active = TRUE;
+  va_bus_is_active = FALSE;
   return FALSE;
   }
 
@@ -267,39 +261,26 @@ BOOL vehicle_voltampera_poll0(void)
 
   if (can_databuffer[1] != 0x62) return TRUE; // Check the return code
 
-  if (can_id == 0x7ed)
+  if (can_id == 0x7ec)
     {
     switch (pid)
       {
-      case 0x1E3D:  // On-board charger current
-       // car_chargecurrent = (unsigned int)value / 4;
-        car_chargecurrent = (unsigned int)(can_databuffer[4]*256 + can_databuffer[5])/4000;
+      case 0x4369:  // On-board charger current
+        car_chargecurrent = (unsigned int)value / 5;
         break;
-      case 0x1E3B:  // On-board charger voltage
-        car_linevoltage = (unsigned int)(can_databuffer[4]*256 + can_databuffer[5])/4;
+      case 0x4368:  // On-board charger voltage
+        car_linevoltage = (unsigned int)value << 1;
         break;
-      case 0x028C:  // SOC
-        car_SOC = (char)(((int)value * 4) / 10);
+      case 0x801f:  // Outside temperature (filtered) (aka ambient temperature)
+        car_stale_ambient = 60;
+        car_ambient_temp = (signed char)((int)value/2 - 0x28);
         break;
-      case 0x7448:  // is the car charging
-        //char car_chargestate; // 1=charging, 2=top off, 4=done, 13=preparing to charge, 21-25=stopped charging
-          if (value = 0x04) // charging
-          { 
-              car_chargestate = 1;
-          }
-          else 
-          {
-              car_chargestate = 0;
-          }
+      case 0x801e:  // Outside temperature (raw)
+        car_stale_temps = 60;
         break;
-      case 0x1E0E:  // High-voltage Battery max temperature
+      case 0x434f:  // High-voltage Battery temperature
         car_stale_temps = 60;
         car_tbattery = (int)value - 0x28;
-        break;
-      case 0x1E0F:  // High-voltage Battery min temperature
-          // use the max temperature
-        //car_stale_temps = 60;
-        //car_tbattery = (int)value - 0x28;
         break;
       case 0x1c43:  // PEM temperature
         car_stale_temps = 60;
@@ -314,19 +295,15 @@ BOOL vehicle_voltampera_poll0(void)
         break;
       }
     }
-  else if (can_id == 0x77E)
+  else if (can_id == 0x7e8)
     {
     switch (pid)
       {
-      case 0xF40D:  // Vehicle speed
+      case 0x000d:  // Vehicle speed
         if (can_mileskm == 'K')
           car_speed = value;
         else
           car_speed = (unsigned char) ((((unsigned long)value * 1000)+500)/1609);
-        break;
-      case 0x2203:  // Ambient temperature
-        car_ambient_temp = (signed char) (can_databuffer[4]*256 + can_databuffer[5])/2 ; // needs revision
-        car_stale_ambient = 60; // Reset stale indicator
         break;
       }
     }
@@ -466,9 +443,9 @@ BOOL vehicle_voltampera_initialise(void)
   car_type[4] = 0;
 
   // Vehicle specific data initialisation
-  va_soc_largest  = 99999;
-  va_soc_smallest = 0;
-  va_bus_is_active = TRUE;       // Indicates recent activity on the bus
+  va_soc_largest  = 56028;
+  va_soc_smallest = 13524;
+  va_bus_is_active = FALSE;       // Indicates recent activity on the bus
   va_charge_timer = 0;
   va_charge_wm = 0;
   va_candata_timer = 0;

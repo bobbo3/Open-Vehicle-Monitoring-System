@@ -36,18 +36,35 @@
 #pragma udata overlay vehicle_overlay_data
 
 unsigned char nl_busactive;   // An indication that bus is active
+unsigned int  nl_pack_voltage;
+signed int    nl_pack_current;
+signed int    nl_pack_temp1;
+signed int    nl_pack_temp2;
+signed int    nl_pack_temp3;
+signed int    nl_pack_temp4;
+unsigned int  nl_SOH; // State of health 
+unsigned int  nl_capacity; // Remaining Ah in the pack
+unsigned int  nl_acc_batt_v;
+unsigned int  nl_charges_quick; // number of quick charges
+unsigned int  nl_charges_normal; // number of normal charges
 
 #pragma udata
 
 ////////////////////////////////////////////////////////////////////////
 // vehicle_nissanleaf_polls
 // This rom table records the PIDs that need to be polled
-
+// idle, charging, driving [seconds]
 rom  vehicle_pid_t vehicle_nissanleaf_polls[]
   =
   {
-    { 0x797, 0x79a, VEHICLE_POLL_TYPE_OBDIICURRENT, 0x0d, {  10, 10, 0 } }, // Speed
-    { 0x797, 0x79a, VEHICLE_POLL_TYPE_OBDIIVEHICLE, 0x02, {  10, 10, 0 } }, // VIN
+    { 0x797, 0x79a, VEHICLE_POLL_TYPE_OBDIIGROUP , 0x81, {  160, 160, 160 } }, // car CAN VIN
+    { 0x79B, 0x7BB, VEHICLE_POLL_TYPE_OBDIIGROUP , 0x01, {  100, 60, 3 } }, // car CAN batt info
+    { 0x797, 0x79a, VEHICLE_POLL_TYPE_OBDIIEXTENDED , 0x1203, {  0, 600, 0 } }, // number of quick charges
+    { 0x797, 0x79a, VEHICLE_POLL_TYPE_OBDIIEXTENDED , 0x1205, {  0, 600, 0 } }, // number of normal charges
+    { 0x797, 0x79a, VEHICLE_POLL_TYPE_OBDIIEXTENDED , 0x115D, {  120, 30, 30 } }, // ambient temperature
+    { 0x797, 0x79a, VEHICLE_POLL_TYPE_OBDIIEXTENDED , 0x1230, {  0, 10, 1800 } }, // charging voltage
+    { 0x797, 0x79a, VEHICLE_POLL_TYPE_OBDIIEXTENDED , 0x1210, {  0, 10, 1800 } }, // charging amps
+    
     { 0, 0, 0x00, 0x00, { 0, 0, 0 } }
   };
 
@@ -70,6 +87,65 @@ BOOL vehicle_nissanleaf_poll0(void)
 
   switch (vehicle_poll_pid)
     {
+    case 0x81:  // VIN (multi-line response)
+      for (value1=0;value1<can_datalength;value1++)
+        {
+        car_vin[value1+(vehicle_poll_ml_offset-can_datalength)] = can_databuffer[value1];
+        }
+      if (vehicle_poll_ml_remain==0)
+        car_vin[value1+vehicle_poll_ml_offset] = 0;
+      break;
+
+    case 0x01: // many batt infos
+        if (vehicle_poll_canid == 0x79b)
+        {
+        switch(vehicle_poll_ml_frame)
+        {
+            case 3:
+                nl_acc_batt_v = ((unsigned long)can_databuffer[2]<<8 + can_databuffer[3])/1000;
+                car_12vline = (unsigned int)(((unsigned long)can_databuffer[2]<<8 + can_databuffer[3])/100);
+                break;
+
+            case 4:
+                /*
+                car_SOC = (char)(((unsigned long)can_databuffer[4]<<16 + 
+                        (unsigned long)can_databuffer[5]<<8 + 
+                        can_databuffer[6])/10000);*/
+                car_SOC = (char)((unsigned long)(
+                        (unsigned long)can_databuffer[4]*65536 + 
+                        (unsigned long)can_databuffer[5]*256 + 
+                        (unsigned long)can_databuffer[6]
+                        )/10000);
+                nl_SOH = (can_databuffer[1]<<8 + can_databuffer[2])/100;
+                break;
+            
+            case 5:
+                nl_capacity = ((unsigned long)can_databuffer[1]<<16 + (unsigned long)can_databuffer[2]<<8 + 
+                        can_databuffer[3])/10000;
+                car_cac100 = (unsigned int)(((unsigned long)can_databuffer[1]<<16 + 
+                        (unsigned long)can_databuffer[2]<<8 + can_databuffer[3])/100);
+                break;
+        }
+        }
+        break;
+    case 0x1203:  // # of quick charges
+        nl_charges_quick = ((unsigned long)can_databuffer[4]<<8 + can_databuffer[5]);
+      break;
+    case 0x1205:  // # of normal charges
+        nl_charges_normal = ((unsigned long)can_databuffer[4]<<8 + can_databuffer[5]);
+      break;
+
+    case 0x115D:  // ambient temperature
+        //car_ambient_temp = (can_databuffer[4]<<8 + can_databuffer[5]);
+      break;
+    case 0x1230:  // charging voltage
+        //car_linevoltage = (can_databuffer[4]<<8 + can_databuffer[5]);
+      break;
+    case 0x1210:  // charging amps
+        //car_chargecurrent = (can_databuffer[4]<<8 + can_databuffer[5]);
+      break;
+
+      /* // Evcan code
     case 0x02:  // VIN (multi-line response)
       for (value1=0;value1<can_datalength;value1++)
         {
@@ -84,6 +160,7 @@ BOOL vehicle_nissanleaf_poll0(void)
       else
         car_speed = (unsigned char) MiFromKm((unsigned long )value1);
       break;
+       */
     }
 
   return TRUE;
@@ -95,6 +172,10 @@ BOOL vehicle_nissanleaf_poll1(void)
 
   switch (can_id)
     {
+    case 0x355:
+        car_speed = can_databuffer[1]<<8 + can_databuffer[2];        
+      break;
+    /* //evbus code  
     case 0x56e:
       if (can_databuffer[0] == 0x86)
         { // Car is driving
@@ -120,12 +201,6 @@ BOOL vehicle_nissanleaf_poll1(void)
           }
         }
       break;
-    case 0x5bc:
-      car_idealrange = ((int)can_databuffer[0]<<2) +
-                       ((can_databuffer[1]&0xc0)>>6);
-      car_SOC = (car_idealrange * 100 + 140) / 281; // convert Gids to percent
-      car_idealrange = (car_idealrange * 84 + 140) / 281;
-      break;
     case 0x5bf:
       car_chargelimit = can_databuffer[2] / 5;
       if ((car_chargelimit != 0)&&(can_databuffer[3] != 0))
@@ -144,7 +219,9 @@ BOOL vehicle_nissanleaf_poll1(void)
           net_req_notification(NET_NOTIFY_STAT);
           }
         }
-/*      else if ((car_chargelimit==0)&&(car_chargestate==1))
+      break;
+     */
+      /*      else if ((car_chargelimit==0)&&(car_chargestate==1))
         { // Charge has been interrupted
         car_doors1bits.ChargePort = 0;
         car_doors1bits.Charging = 0;
@@ -156,7 +233,11 @@ BOOL vehicle_nissanleaf_poll1(void)
         net_req_notification(NET_NOTIFY_CHARGE);
         net_req_notification(NET_NOTIFY_STAT);
         } */
+
+    case 0x5c5:
+        car_odometer = can_databuffer[1]<<16 + can_databuffer[2]<<8 + can_databuffer[3];        
       break;
+    
     }
   return TRUE;
   }
@@ -214,12 +295,26 @@ BOOL vehicle_nissanleaf_initialise(void)
   // Buffer 0 (filters 0, 1) for extended PID responses
   RXB0CON = 0b00000000;
 
-  RXM0SIDL = 0b00000000;        // Mask   11111111000
-  RXM0SIDH = 0b11111111;
+  // wishing to receive 79A(111 1001 1010) and 7BB(111 1011 1011) responses
+  // the mask tells what bits to check and the filter what these bits values
+  // should be
+  // 79A                                  111 1001 1010
+  // 7BB                                  111 1011 1011
+  RXM0SIDL = 0b11000000;        // Mask   111 1101 1110
+  RXM0SIDH = 0b11111011;
 
-  RXF0SIDL = 0b00000000;        // Filter 11111101000 (0x798 .. 0x79f)
+  RXF0SIDL = 0b01000000;        // Filter 111 1001 1010
   RXF0SIDH = 0b11110011;
 
+/*  
+  RXM0SIDL = 0b00000000;        // Mask   11111111000
+//  RXM0SIDH = 0b11111111;
+  RXM0SIDH = 0b11111000;
+
+  RXF0SIDL = 0b00000000;        // Filter 11111101000 (0x798 .. 0x79f)
+//  RXF0SIDH = 0b11110011;
+  RXF0SIDH = 0b11100000;
+*/
   // Buffer 1 (filters 2, 3, 4 and 5) for direct can bus messages
   RXB1CON  = 0b00000000;	// RX buffer1 uses Mask RXM1 and filters RXF2, RXF3, RXF4, RXF5
 

@@ -106,6 +106,7 @@ typedef struct
 extern unsigned char vehicle_poll_state;        // Current poll state
 extern rom vehicle_pid_t* vehicle_poll_plist;   // Head of poll list
 extern rom vehicle_pid_t* vehicle_poll_plcur;   // Current position in poll list
+extern unsigned int vehicle_poll_canid;         // Last requested canid
 extern unsigned int vehicle_poll_ticker;        // Polling ticker
 extern unsigned int vehicle_poll_moduleid_low;  // Expected moduleid low mark
 extern unsigned int vehicle_poll_moduleid_high; // Expected moduleid high mark

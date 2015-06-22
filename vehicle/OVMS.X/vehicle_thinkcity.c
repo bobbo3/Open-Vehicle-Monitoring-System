@@ -523,7 +523,7 @@ BOOL vehicle_thinkcity_idlepoll(void)
     TXB0D0 = 0x03;
     TXB0D1 = 0x22;
     TXB0D2 = 0x49;
-    TXB0D3 = 0x65;
+    TXB0D3 = 0x65;  //tc_charger_temp
     TXB0DLC = 0b00000100; // data length (4)
     TXB0CON = 0b00001000; // mark for transmission
     delay100b(); // Delay a little... (100ms, approx)
@@ -535,7 +535,7 @@ BOOL vehicle_thinkcity_idlepoll(void)
     TXB0D0 = 0x03;
     TXB0D1 = 0x22;
     TXB0D2 = 0x49;
-    TXB0D3 = 0x66;
+    TXB0D3 = 0x66; //car_tpem
     TXB0DLC = 0b00000100; // data length (4)
     TXB0CON = 0b00001000; // mark for transmission
     delay100b(); // Delay a little... (100ms, approx)
@@ -547,7 +547,7 @@ BOOL vehicle_thinkcity_idlepoll(void)
     TXB0D0 = 0x03;
     TXB0D1 = 0x22;
     TXB0D2 = 0x49;
-    TXB0D3 = 0x67;
+    TXB0D3 = 0x67; //car_tmotor
     TXB0DLC = 0b00000100; // data length (4)
     TXB0CON = 0b00001000; // mark for transmission
     delay100b(); // Delay a little... (100ms, approx)
@@ -559,7 +559,7 @@ BOOL vehicle_thinkcity_idlepoll(void)
     TXB0D0 = 0x03;
     TXB0D1 = 0x22;
     TXB0D2 = 0x49;
-    TXB0D3 = 0x68;
+    TXB0D3 = 0x68; //tc_slibatt_temp
     TXB0DLC = 0b00000100; // data length (4)
     TXB0CON = 0b00001000; // mark for transmission
     delay100b(); // Delay a little... (100ms, approx)
